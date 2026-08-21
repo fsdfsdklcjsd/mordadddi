@@ -9,26 +9,13 @@ BOT_TOKEN = "8925598573:AAFsQBxBZOQh2M6q1yBrSgkrUiGohmmaDy8"
 CHAT_ID = "7752587536"
 # ==========================================
 
-ZIP_NAME = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-# لیست پوشه‌ها و فایل‌های استثنا (می‌توانید مواردی که نمی‌خواهید زیپ شوند را ویرایش کنید)
 EXCLUDE_EXACT_DIRS = {'node_modules', '.git', '__pycache__', '.cache'}
-EXCLUDE_EXACT_FILES = {ZIP_NAME, '.DS_Store'}
-EXCLUDE_EXTENSIONS = ('.pyc', '.pyo', '.log', '.sqlite3', '.db')
 
 def is_excluded_dir(dir_name):
-    # نادیده گرفتن تمام پوشه‌هایی که با venv یا .venv شروع می‌شوند
     if dir_name.startswith('venv') or dir_name.startswith('.venv'):
         return True
     if dir_name in EXCLUDE_EXACT_DIRS:
-        return True
-    return False
-
-def is_excluded_file(file_name):
-    if file_name in EXCLUDE_EXACT_FILES:
-        return True
-    if file_name.endswith(EXCLUDE_EXTENSIONS):
         return True
     return False
 
@@ -46,81 +33,87 @@ def edit_msg(msg_id, text):
     except Exception:
         pass
 
-def main():
-    msg_id = send_msg("🚀 شروع فرایند بکاپ‌گیری...")
-    
+def send_folder_as_zip(target_path, zip_name, display_name, msg_id):
     file_list = []
-    for root, dirs, files in os.walk('.'):
-        # حذف پوشه‌های استثنا شده از پیمایش
-        dirs[:] = [d for d in dirs if not is_excluded_dir(d)]
-        for f in files:
-            if not is_excluded_file(f):
-                file_list.append(os.path.join(root, f))
-                
+    
+    if os.path.isfile(target_path):
+        file_list.append(target_path)
+    else:
+        for root, dirs, files in os.walk(target_path):
+            dirs[:] = [d for d in dirs if not is_excluded_dir(d)]
+            for f in files:
+                if not f.endswith(('.pyc', '.pyo', '.log', '.sqlite3', '.db')) and f != zip_name:
+                    file_list.append(os.path.join(root, f))
+
     total_files = len(file_list)
     if total_files == 0:
-        msg = "❌ هیچ فایلی برای زیپ کردن پیدا نشد!"
-        print(msg)
-        edit_msg(msg_id, msg)
+        print(f"[-] پوشه {display_name} خالی است یا فایل معتبری ندارد.")
         return
 
-    print(f"شروع فشرده‌سازی {total_files} فایل...")
-    last_percent = -1
-    
-    with zipfile.ZipFile(ZIP_NAME, 'w', zipfile.ZIP_DEFLATED) as z:
+    print(f"\n[+] در حال زیپ کردن: {display_name} ({total_files} فایل)")
+    edit_msg(msg_id, f"📦 در حال فشرده‌سازی پوشه: {display_name}...\nتعداد فایل‌ها: {total_files}")
+
+    with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as z:
         for idx, fp in enumerate(file_list, 1):
             try:
                 z.write(fp, fp)
-            except Exception as e:
-                print(f"\nخطا در خواندن {fp}: {e}")
-                
+            except Exception:
+                pass
             percent = int((idx / total_files) * 100)
-            
-            # نمایش پیشرفت شفاف در ترمینال
-            sys.stdout.write(f"\r[+] پیشرفت زیپ: {percent}% [{idx}/{total_files}]")
+            sys.stdout.write(f"\rزیپ {display_name}: {percent}% [{idx}/{total_files}]")
             sys.stdout.flush()
-            
-            # بروزرسانی پیام تلگرام در بازه‌های ۱۰ درصدی
-            if percent % 10 == 0 and percent != last_percent:
-                edit_msg(msg_id, f"📦 در حال فشرده‌سازی سورس‌کد...\nپیشرفت: {percent}% ({idx}/{total_files} فایل)")
-                last_percent = percent
 
-    print("\n[+] فشرده‌سازی کامل شد. در حال ارسال به تلگرام...")
-    edit_msg(msg_id, "⬆️ فشرده‌سازی تموم شد. در حال آپلود فایل زیپ به تلگرام...")
+    zip_size_mb = os.path.getsize(zip_name) / (1024 * 1024)
+    print(f"\n[+] حجم زیپ: {zip_size_mb:.2f} MB")
 
+    if zip_size_mb > 49.5:
+        err_msg = f"❌ پوشه {display_name} بیش از ۴۹ مگابایت است ({zip_size_mb:.1f}MB) و ارسال نشد."
+        print(err_msg)
+        edit_msg(msg_id, err_msg)
+        if os.path.exists(zip_name): os.remove(zip_name)
+        return
+
+    edit_msg(msg_id, f"⬆️ در حال ارسال زیپ پوشه {display_name} به تلگرام...")
+    
     try:
-        zip_size_mb = os.path.getsize(ZIP_NAME) / (1024 * 1024)
-        if zip_size_mb > 49.5:
-            err_size = f"❌ حجم فایل زیپ ({zip_size_mb:.1f}MB) بیش از حد مجاز ربات تلگرام (۵۰ مگابایت) است!"
-            print(f"\n{err_size}")
-            edit_msg(msg_id, err_size)
-            return
-
-        with open(ZIP_NAME, 'rb') as doc:
+        with open(zip_name, 'rb') as doc:
             res = requests.post(
                 f"{BASE_URL}/sendDocument",
-                data={
-                    'chat_id': CHAT_ID,
-                    'caption': f"✅ بکاپ با موفقیت دریافت شد!\n📦 فایل: {ZIP_NAME}\n📏 حجم: {zip_size_mb:.2f} MB"
-                },
+                data={'chat_id': CHAT_ID, 'caption': f"📂 بکاپ پوشه: {display_name}\n📏 حجم: {zip_size_mb:.2f} MB"},
                 files={'document': doc},
                 timeout=600
             )
-            
         if res.status_code == 200:
-            print("[+] ارسال با موفقیت انجام شد.")
-            edit_msg(msg_id, f"✅ تمام! فایل زیپ ({zip_size_mb:.2f} MB) با موفقیت در تلگرام آپلود شد.")
+            print(f"[+] پوشه {display_name} با موفقیت ارسال شد.")
         else:
-            print(f"\n[-] خطا در ارسال: {res.text}")
-            edit_msg(msg_id, f"❌ خطا در ارسال به تلگرام:\n{res.text}")
-            
+            print(f"[-] خطا در ارسال {display_name}: {res.text}")
     except Exception as e:
-        print(f"\n[-] خطا: {e}")
-        edit_msg(msg_id, f"❌ خطا حین آپلود: {e}")
-        
+        print(f"[-] خطا در آپلود {display_name}: {e}")
     finally:
-        if os.path.exists(ZIP_NAME):
-            os.remove(ZIP_NAME)
+        if os.path.exists(zip_name):
+            os.remove(zip_name)
+
+def main():
+    status_msg_id = send_msg("🚀 شروع فرایند بکاپ‌گیری مجزا برای هر پوشه...")
+    
+    # 1. زیپ و ارسال فایل‌های موجود در ریشه اصلی
+    root_files = [f for f in os.listdir('.') if os.path.isfile(f) and not f.endswith(('.pyc', '.log', '.sqlite3', '.db'))]
+    if root_files:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        zip_root = f"root_files_{timestamp}.zip"
+        send_folder_as_zip('.', zip_root, "فایل‌های اصلی Root", status_msg_id)
+
+    # 2. پیمایش تک‌تک پوشه‌های فرعی
+    items = [d for d in os.listdir('.') if os.path.isdir(d) and not is_excluded_dir(d)]
+    total_folders = len(items)
+
+    for index, folder in enumerate(items, 1):
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        zip_name = f"{folder}_{timestamp}.zip"
+        print(f"\n================ [{index}/{total_folders}] ================")
+        send_folder_as_zip(folder, zip_name, folder, status_msg_id)
+
+    edit_msg(status_msg_id, "✅ تمام! تمام پوشه‌ها به‌صورت مجزا بررسی و زیپ‌هایشان ارسال شد.")
 
 if __name__ == "__main__":
     main()
