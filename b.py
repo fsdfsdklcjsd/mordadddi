@@ -1,17 +1,17 @@
 import os
-import sys
 import zipfile
 import requests
 from datetime import datetime
 
-# دریافت توکن و چت‌آیدی از ورودی
-BOT_TOKEN = sys.argv[1] if len(sys.argv) > 1 else "8925598573:AAFsQBxBZOQh2M6q1yBrSgkrUiGohmmaDy8"
-CHAT_ID = sys.argv[2] if len(sys.argv) > 2 else "7752587536"
+# ==========================================
+BOT_TOKEN = "8925598573:AAFsQBxBZOQh2M6q1yBrSgkrUiGohmmaDy8"
+CHAT_ID = "7752587536"
+# ==========================================
 
 EXCLUDE = {'venv', '.venv', 'node_modules', '.git', '__pycache__'}
 ZIP_NAME = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
 
-print("در حال فشرده‌سازی...")
+print("در حال فشرده‌سازی فایل‌ها...")
 with zipfile.ZipFile(ZIP_NAME, 'w', zipfile.ZIP_DEFLATED) as z:
     for root, dirs, files in os.walk('.'):
         dirs[:] = [d for d in dirs if d not in EXCLUDE]
@@ -29,9 +29,9 @@ with open(ZIP_NAME, 'rb') as doc:
     )
 
 if res.status_code == 200:
-    print("ارسال با موفقیت انجام شد.")
+    print("ارسال شد.")
 else:
-    print(f"خطا در ارسال: {res.text}")
+    print(f"خطا: {res.text}")
 
 if os.path.exists(ZIP_NAME):
     os.remove(ZIP_NAME)
